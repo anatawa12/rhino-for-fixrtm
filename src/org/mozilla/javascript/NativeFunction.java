@@ -23,6 +23,15 @@ public abstract class NativeFunction extends BaseFunction
         ScriptRuntime.setFunctionProtoAndParent(this, scope);
     }
 
+    // ================================ fixRTM patch start ================================
+    // for compiled script, should return raw script
+
+    public String decompileRaw() {
+        return null;
+    }
+
+    // ================================  fixRTM patch end  ================================
+
     /**
      * @param indent How much to indent the decompiled result
      *
@@ -31,6 +40,11 @@ public abstract class NativeFunction extends BaseFunction
     @Override
     final String decompile(int indent, int flags)
     {
+        if (indent == 0 && flags == 0) {
+            String raw = decompileRaw();
+            if (raw != null)
+                return raw;
+        }
         String encodedSource = getEncodedSource();
         if (encodedSource == null) {
             return super.decompile(indent, flags);
