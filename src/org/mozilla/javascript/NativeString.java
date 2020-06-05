@@ -12,6 +12,7 @@ import static org.mozilla.javascript.ScriptRuntimeES6.requireObjectCoercible;
 import java.text.Collator;
 import java.text.Normalizer;
 import java.util.Locale;
+import java.util.function.Function;
 
 import org.mozilla.javascript.regexp.NativeRegExp;
 
@@ -125,6 +126,59 @@ final class NativeString extends IdScriptableObject
                 ConstructorId_toLocaleLowerCase, "toLocaleLowerCase", 1);
         super.fillConstructorProperties(ctor);
     }
+
+    // ================================ fixRTM patch start ================================
+
+    @Override
+    public Object get(String name, Scriptable start) {
+        Object result = super.get(name, start);
+        if (result != NOT_FOUND) return result;
+        // get ctx
+        Context ctx = Context.getCurrentContext();
+        if (ctx == null) return NOT_FOUND;
+        // get by object
+        result = ctx.getWrapFactory().wrapNewObject(ctx, ScriptableObject.getTopLevelScope(start), "")
+                .get(name, start);
+        if (result instanceof NativeJavaMethod) {
+            return new WrappedNativeFunction((NativeJavaMethod) result, 
+                    (obj) -> obj instanceof NativeString ? ((NativeString) obj).toCharSequence().toString() : null);
+        }
+        return result;
+    }
+
+    private static class WrappedNativeFunction extends NativeJavaMethod {
+        private final NativeJavaMethod javaMethod;
+        private final Function<Scriptable, Object> unwrap;
+
+        WrappedNativeFunction(NativeJavaMethod javaMethod, Function<Scriptable, Object> unwrap) {
+            super(javaMethod.methods, javaMethod.getFunctionName());
+            this.javaMethod = javaMethod;
+            this.unwrap = unwrap;
+        }
+
+        @Override
+        public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+            if (scope == null) 
+                return javaMethod.call(cx, scope, thisObj, args);
+
+            Object unwrapped = unwrap.apply(scope);
+            if (unwrapped instanceof Scriptable) 
+                return javaMethod.call(cx, (Scriptable) unwrapped, thisObj, args);
+            if (unwrapped == null)
+                return javaMethod.call(cx, scope, thisObj, args);
+
+            scope = cx.getWrapFactory().wrapNewObject(cx, ScriptableObject.getTopLevelScope(scope), unwrapped);
+
+            return javaMethod.call(cx, scope, thisObj, args);
+        }
+
+        @Override
+        public Object getDefaultValue(Class<?> typeHint) {
+            return javaMethod.getDefaultValue(typeHint);
+        }
+    }
+
+    // ================================  fixRTM patch end  ================================
 
     @Override
     protected void initPrototypeId(int id)
