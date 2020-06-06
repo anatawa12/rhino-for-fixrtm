@@ -381,6 +381,45 @@ public class ScriptRuntime {
      *
      * See ECMA 9.2.
      */
+    public static Boolean toBooleanObject(Object val)
+    {
+        for (;;) {
+            if (val instanceof Boolean)
+                return (Boolean) val;
+            if (val == null || val == Undefined.instance)
+                return null;
+            if (val instanceof CharSequence)
+                return ((CharSequence) val).length() != 0;
+            if (val instanceof Number) {
+                double d = ((Number) val).doubleValue();
+                return (!Double.isNaN(d) && d != 0.0);
+            }
+            if (val instanceof Scriptable) {
+                if (val instanceof ScriptableObject &&
+                        ((ScriptableObject) val).avoidObjectDetection())
+                {
+                    return false;
+                }
+                if (Context.getContext().isVersionECMA1()) {
+                    // pure ECMA
+                    return true;
+                }
+                // ECMA extension
+                val = ((Scriptable) val).getDefaultValue(BooleanClass);
+                if ((val instanceof Scriptable) && !isSymbol(val))
+                    throw errorWithClassName("msg.primitive.expected", val);
+                continue;
+            }
+            warnAboutNonJSObject(val);
+            return true;
+        }
+    }
+
+    /**
+     * Convert the value to a boolean.
+     *
+     * See ECMA 9.2.
+     */
     public static boolean toBoolean(Object val)
     {
         for (;;) {
@@ -412,6 +451,37 @@ public class ScriptRuntime {
             }
             warnAboutNonJSObject(val);
             return true;
+        }
+    }
+
+    /**
+     * Convert the value to a number.
+     */
+    public static Number toNumberObject(Object val)
+    {
+        for (;;) {
+            if (val instanceof Number)
+                return (Number) val;
+            if (val == null)
+                return null;
+            if (val == Undefined.instance)
+                return null;
+            if (val instanceof String)
+                return toNumber((String) val);
+            if (val instanceof CharSequence)
+                return toNumber(val.toString());
+            if (val instanceof Boolean)
+                return (Boolean) val ? 1 : +0.0;
+            if (val instanceof Symbol)
+                throw typeError0("msg.not.a.number");
+            if (val instanceof Scriptable) {
+                val = ((Scriptable) val).getDefaultValue(NumberClass);
+                if ((val instanceof Scriptable) && !isSymbol(val))
+                    throw errorWithClassName("msg.primitive.expected", val);
+                continue;
+            }
+            warnAboutNonJSObject(val);
+            return NaN;
         }
     }
 

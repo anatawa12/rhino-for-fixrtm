@@ -2805,6 +2805,7 @@ public class Context
 
     private static DynamicLinker makeLinker() {
         DynamicLinkerFactory factory = new DynamicLinkerFactory();
+        factory.setPrioritizedLinkers(new RhinoLinker());
         return factory.createLinker();
     }
 
