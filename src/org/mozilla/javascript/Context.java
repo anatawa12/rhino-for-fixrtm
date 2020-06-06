@@ -16,6 +16,7 @@ import java.io.PrintWriter;
 import java.io.Reader;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
@@ -28,11 +29,14 @@ import java.util.Set;
 import java.util.jar.Attributes;
 import java.util.jar.Manifest;
 
+import org.dynalang.dynalink.DynamicLinker;
+import org.dynalang.dynalink.DynamicLinkerFactory;
 import org.mozilla.classfile.ClassFileWriter.ClassFileFormatException;
 import org.mozilla.javascript.ast.AstRoot;
 import org.mozilla.javascript.ast.ScriptNode;
 import org.mozilla.javascript.debug.DebuggableScript;
 import org.mozilla.javascript.debug.Debugger;
+import org.mozilla.javascript.dynalink.RhinoLinker;
 import org.mozilla.javascript.xml.XMLLib;
 
 /**
@@ -2795,4 +2799,41 @@ public class Context
     public boolean generateObserverCount = false;
 
     boolean isTopLevelStrict;
+
+    // add linker
+    private static DynamicLinker linker = makeLinker();
+
+    private static DynamicLinker makeLinker() {
+        DynamicLinkerFactory factory = new DynamicLinkerFactory();
+        return factory.createLinker();
+    }
+
+    public static DynamicLinker getLinker() {
+        if (linker == null) {
+            linker = makeLinker();
+        }
+        return linker;
+    }
+
+    static Class<?> getClassLink(Object object) {
+        if (object instanceof Wrapper) {
+            object = ((Wrapper)object).unwrap();
+        }
+        if (object == null) return NULL_CLASS;
+        return object.getClass();
+    }
+
+    // add NULL_CLASS
+    
+    static Class<?> NULL_CLASS;
+
+    static {
+        try {
+            Field field = Class.forName("org.dynalang.dynalink.beans.ClassString").getDeclaredField("NULL_CLASS");
+            field.setAccessible(true);
+            NULL_CLASS = (Class<?>) field.get(null);
+        } catch (IllegalAccessException | NoSuchFieldException | ClassNotFoundException e) {
+            throw new AssertionError(e);
+        }
+    }
 }
