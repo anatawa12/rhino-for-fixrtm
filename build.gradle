@@ -137,6 +137,7 @@ task runtimeJar(type: Jar) {
 jar {
     dependsOn runtimeJar
     from "LICENSE.txt"
+    from "THIRD-PERTY-LICENSE.txt"
     manifest {
         attributes(
             "Manifest-Version": "1.0",
