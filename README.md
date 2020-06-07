@@ -7,6 +7,9 @@ Rhino is an implementation of JavaScript in Java.
 ## This repository is a fork of rhino for [fixRTM](https://github.com/anatawa12/fixRTM)
 
 Here is the list of difference from the original Rhino:
+- NativeString will search String's method.
+- toString for function return real function source code.
+- Packages.some.Class.class should return java.lang.Class Object.
 
 ## License
 
