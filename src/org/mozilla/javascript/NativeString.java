@@ -11,7 +11,10 @@ import static org.mozilla.javascript.ScriptRuntimeES6.requireObjectCoercible;
 
 import java.text.Collator;
 import java.text.Normalizer;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Function;
 
 import org.mozilla.javascript.regexp.NativeRegExp;
@@ -131,7 +134,7 @@ final class NativeString extends IdScriptableObject
     public Object get(String name, Scriptable start) {
         Object result = super.get(name, start);
         if (result != NOT_FOUND) return result;
-        if (name == "toString") return NOT_FOUND;
+        if (StringMethod_names.contains(name)) return NOT_FOUND;
         // get ctx
         Context ctx = Context.getCurrentContext();
         if (ctx == null) return NOT_FOUND;
@@ -144,6 +147,15 @@ final class NativeString extends IdScriptableObject
         }
         return result;
     }
+
+    private static final Set<String> StringMethod_names = new HashSet<>(Arrays.asList(
+        "charAt", "charCodeAt", "codePointAt", "concat", "includes", "endsWith", "indexOf", "lastIndexOf",
+        "localeCompare", "match", "normalize", "padEnd", "padStart", "quote", "repeat", "replace", "search",
+        "slice", "split", "startsWith", "substr", "substring", "toLocaleLowerCase", "toLocaleUpperCase",
+        "toLowerCase", "toSource", "toUpperCase", "trim", "trimStart", "trimLeft", "trimEnd",
+        "trimRight", "anchor", "big", "blink", "bold", "fixed", "fontcolor", "fontsize", "italics",
+        "link", "small", "strike", "sub", "sup", "toString", "valueOf"
+    ));
 
     private static class WrappedNativeFunction extends NativeJavaMethod {
         private final NativeJavaMethod javaMethod;
