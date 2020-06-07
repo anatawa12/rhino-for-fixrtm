@@ -7,6 +7,7 @@ Rhino is an implementation of JavaScript in Java.
 ## This repository is a fork of rhino for [fixRTM](https://github.com/anatawa12/fixRTM)
 
 Here is the list of difference from the original Rhino:
+- use dynlink to resolve overload and casting values
 
 ## License
 
