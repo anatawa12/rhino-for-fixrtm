@@ -280,6 +280,9 @@ public class NativeJavaObject
      */
     static Object coerceTypeImpl(Class<?> type, Object value) {
         try {
+            if (value instanceof Wrapper) {
+                value = ((Wrapper)value).unwrap();
+            }
             MethodHandle handle = Context.getLinker()
                 .getLinkerServices()
                 .getTypeConverter(Context.getClassLink(value), type);
