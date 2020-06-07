@@ -323,7 +323,7 @@ public class NativeJavaMethod extends BaseFunction
     static int findFunction(Context cx,
                             MemberBox[] methods, Object[] args) {
         LinkerServices linkerServices = Context.getLinker().getLinkerServices();
-        Class<?>[] argTypes = Arrays.stream(args).map(Context::getClassLink).toArray(Class[]::new);
+        Class<?>[] argTypes = Arrays.stream(args).map(it -> Context.getClassLink(it, Object.class)).toArray(Class[]::new);
 
         // First, find all methods applicable to the call site by subtyping (JLS 15.12.2.2)
         final List<MemberBox> subtypingApplicables = getApplicables(argTypes, methods, APPLICABLE_BY_SUBTYPING);
@@ -380,7 +380,8 @@ public class NativeJavaMethod extends BaseFunction
                     // has an already determined Lookup.
                     final List<MemberBox> methodHandles = invokables;
 
-                    final List<MemberBox> selected = selectMethod(argTypes, methodHandles, linkerServices);
+                    Class<?>[] realArgTypes = Arrays.stream(args).map(Context::getClassLink).toArray(Class[]::new);
+                    final List<MemberBox> selected = selectMethod(realArgTypes, methodHandles, linkerServices);
                     if (selected.size() == 0) return -1;
                     if (selected.size() == 1) return Arrays.asList(methods).indexOf(selected.iterator().next());
 
@@ -419,17 +420,67 @@ public class NativeJavaMethod extends BaseFunction
      */
     @SuppressWarnings("unused")
     private static List<MemberBox> selectMethod(Class<?>[] argTypes, List<MemberBox> methodsIn, LinkerServices linkerServices) {
-        List<MemberBox> fixArgMethods = methodsIn.stream().filter(it -> !it.vararg).collect(Collectors.toList());
+        List<MemberBox> fixArgMethods = methodsIn.stream().filter(it -> !it.vararg || it.argTypes.length == argTypes.length).collect(Collectors.toList());
         List<MemberBox> varArgMethods = methodsIn.stream().filter(it -> it.vararg).collect(Collectors.toList());
         
-        List<MemberBox> methods = getMaximallySpecificMethods(fixArgMethods, false, argTypes, linkerServices);
+        List<MemberBox> methods = getMaximallySpecificMethods(getApplicables(argTypes, fixArgMethods, linkerServices, false), false, argTypes, linkerServices);
         if(methods.isEmpty()) {
-            methods = getMaximallySpecificMethods(varArgMethods, true, argTypes, linkerServices);
+            methods = getMaximallySpecificMethods(getApplicables(argTypes, varArgMethods, linkerServices, true), true, argTypes, linkerServices);
         }
         return methods;
         // no cache
     }
 
+    private static LinkedList<MemberBox> getApplicables(Class<?>[] argTypes, List<MemberBox> methods, LinkerServices linkerServices, boolean varArg) {
+        LinkedList<MemberBox> list = new LinkedList<>();
+
+        for (MemberBox member : methods) {
+            if (isApplicable(argTypes, member, linkerServices, varArg)) {
+                list.add(member);
+            }
+        }
+
+        return list;
+    }
+
+    private static boolean isApplicable(Class<?>[] argTypes, MemberBox method, LinkerServices linkerServices, boolean varArg) {
+        Class<?>[] formalTypes = method.argTypes;
+        int cl = argTypes.length;
+        int fl = formalTypes.length - (varArg ? 1 : 0);
+        if (varArg) {
+            if (cl < fl) {
+                return false;
+            }
+        } else if (cl != fl) {
+            return false;
+        }
+
+        for(int i = 0; i < fl; ++i) {
+            if (!canConvert(linkerServices, argTypes[i], formalTypes[i])) {
+                return false;
+            }
+        }
+
+        if (varArg) {
+            Class<?> varArgType = formalTypes[fl].getComponentType();
+
+            for(int i = fl; i < cl; ++i) {
+                if (!canConvert(linkerServices, argTypes[i], varArgType)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static boolean canConvert(LinkerServices ls, Class<?> from, Class<?> to) {
+        if (from == Context.NULL_CLASS) {
+            return !to.isPrimitive();
+        } else {
+            return ls == null ? TypeUtilities.isMethodInvocationConvertible(from, to) : ls.canConvert(from, to);
+        }
+    }
     private static final BiPredicate<Class<?>[], MemberBox> APPLICABLE_BY_SUBTYPING = (callSiteType, method) -> {
         int methodArity = method.argTypes.length;
         if (methodArity != callSiteType.length) {

@@ -1,5 +1,6 @@
 package org.mozilla.javascript.dynalink;
 
+import jdk.nashorn.internal.runtime.ECMAErrors;
 import org.dynalang.dynalink.linker.ConversionComparator;
 import org.dynalang.dynalink.linker.GuardedInvocation;
 import org.dynalang.dynalink.linker.GuardingDynamicLinker;
@@ -8,9 +9,14 @@ import org.dynalang.dynalink.linker.LinkRequest;
 import org.dynalang.dynalink.linker.LinkerServices;
 import org.dynalang.dynalink.support.Guards;
 import org.dynalang.dynalink.support.TypeUtilities;
+import org.mozilla.javascript.ArrowFunction;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.NativeArray;
+import org.mozilla.javascript.NativeFunction;
+import org.mozilla.javascript.NativeJavaObject;
+import org.mozilla.javascript.NativeObject;
 import org.mozilla.javascript.ScriptRuntime;
+import org.mozilla.javascript.ScriptableObject;
 import org.mozilla.javascript.Undefined;
 
 import java.lang.invoke.MethodHandle;
@@ -50,6 +56,17 @@ public class RhinoLinker implements GuardingDynamicLinker, GuardingTypeConverter
                     return Comparison.TYPE_1_BETTER;
                 }
             } else if (targetType2.isArray()) {
+                return Comparison.TYPE_2_BETTER;
+            }
+        }
+
+        // interface adapter
+        if (isInterfaceAdapterSource(sourceType)) {
+            if (targetType1.isInterface()) {
+                if (!targetType2.isInterface()) {
+                    return Comparison.TYPE_1_BETTER;
+                }
+            } else if (targetType2.isInterface()) {
                 return Comparison.TYPE_2_BETTER;
             }
         }
@@ -121,10 +138,22 @@ public class RhinoLinker implements GuardingDynamicLinker, GuardingTypeConverter
     private static boolean isArrayPreferredTarget(Class<?> clazz) {
         return clazz == List.class || clazz == Collection.class || clazz == Queue.class || clazz == Deque.class;
     }
+    
+    private static boolean isInterfaceAdapterSource(Class<?> clazz) {
+        return NativeObject.class.isAssignableFrom(clazz) || NativeFunction.class.isAssignableFrom(clazz) || ArrowFunction.class.isAssignableFrom(clazz);
+    }
 
     private static final MethodHandle IS_NATIVE_ARRAY = Guards.isInstance(NativeArray.class, MethodType.methodType(Boolean.TYPE, Object.class));
     private static final MethodHandle TO_LIST = MethodHandles.identity(NativeArray.class).asType(MethodType.methodType(List.class, NativeArray.class));
     private static final MethodHandle TO_JAVA_ARRAY = findMH(RhinoLinker.class, "toJavaArray", Object.class, Object.class, Class.class);
+
+    private static final MethodHandle NUMBER_TO_LONG_OR_DOUBLE = findMH(RhinoLinker.class, "numberToLongOrDouble", Object.class, Number.class);
+    private static final MethodHandle NUMBER_TO_DOUBLE = findMH(RhinoLinker.class, "numberToDouble", Object.class, Number.class);
+    
+    private static final MethodHandle CREATE_INTERFACE_ADAPTER = findMH(NativeJavaObject.class, "createInterfaceAdapter", Object.class, Class.class, ScriptableObject.class);
+
+    private static final MethodHandle IDENTITY_CONVERSION = MethodHandles.identity(Object.class);
+
     private static final ClassValue<MethodHandle> ARRAY_CONVERTERS = new ClassValue<MethodHandle>() {
         @Override
         protected MethodHandle computeValue(Class<?> type) {
@@ -168,7 +197,39 @@ public class RhinoLinker implements GuardingDynamicLinker, GuardingTypeConverter
         if (targetType == Object.class && sourceType == Void.TYPE)
             return new GuardedInvocation(MethodHandles.constant(Object.class, Undefined.instance).asType(methodType), null);
 
+        // if target is object and source is Number
+        if (targetType == Object.class && Number.class.isAssignableFrom(sourceType)) {
+            Context ctx = Context.getCurrentContext();
+            if (ctx != null && ctx.hasFeature(Context.FEATURE_INTEGER_WITHOUT_DECIMAL_PLACE)) {
+                return new GuardedInvocation(NUMBER_TO_LONG_OR_DOUBLE.asType(methodType), null);
+            } else {
+                return new GuardedInvocation(NUMBER_TO_DOUBLE.asType(methodType), null);
+            }
+        }
+
+        if (targetType.isAssignableFrom(sourceType)) {
+            return new GuardedInvocation(IDENTITY_CONVERSION.asType(methodType), null);
+        }
+
+        if (targetType.isInterface() && isInterfaceAdapterSource(sourceType)) {
+            return new GuardedInvocation(CREATE_INTERFACE_ADAPTER.bindTo(targetType).asType(methodType), null);
+        }
+
         return null;
+    }
+
+    @SuppressWarnings("unused")
+    public static Object numberToLongOrDouble(Number arg) {
+        double doubleValue = PrimitiveConvert.numberToDouble(arg);
+        if (Math.round(doubleValue) == doubleValue) {
+            return PrimitiveConvert.numberToLong(arg);
+        }
+        return doubleValue;
+    }
+
+    @SuppressWarnings("unused")
+    public static Object numberToDouble(Number arg) {
+        return PrimitiveConvert.numberToDouble(arg);
     }
 
     // utilities
@@ -213,33 +274,62 @@ public class RhinoLinker implements GuardingDynamicLinker, GuardingTypeConverter
         }
 
         @SuppressWarnings("unused") // used by numberToWrappedPrimitive
-        private static Float numberToFloat(Number value) {
+        static Float numberToFloat(Number value) {
             return value == null ? null : value.floatValue();
         }
 
         @SuppressWarnings("unused") // used by numberToWrappedPrimitive
-        private static Byte numberToByte(Number value) {
+        static Byte numberToByte(Number value) {
             return value == null ? null : value.byteValue();
         }
 
         @SuppressWarnings("unused") // used by numberToWrappedPrimitive
-        private static Short numberToShort(Number value) {
+        static Short numberToShort(Number value) {
             return value == null ? null : value.shortValue();
         }
 
         @SuppressWarnings("unused") // used by numberToWrappedPrimitive
-        private static Integer numberToInteger(Number value) {
+        static Integer numberToInteger(Number value) {
             return value == null ? null : value.intValue();
         }
 
         @SuppressWarnings("unused") // used by numberToWrappedPrimitive
-        private static Long numberToLong(Number value) {
+        static Long numberToLong(Number value) {
             return value == null ? null : value.longValue();
         }
 
         @SuppressWarnings("unused") // used by method handle
-        private static String toString(Object value) {
+        static String toString(Object value) {
             return value == null ? null : ScriptRuntime.toString(value);
+        }
+
+        @SuppressWarnings("unused") // used by method handle
+        private static Character toChar(Object o) {
+            if (o == null) {
+                return null;
+            } else if (o instanceof Number) {
+                int ival = ((Number)o).intValue();
+                if (ival >= 0 && ival <= 65535) {
+                    return (char)ival;
+                } else {
+                    throw ECMAErrors.typeError("cant.convert.number.to.char", new String[0]);
+                }
+            } else {
+                String s = toString(o);
+                if (s == null) {
+                    return null;
+                } else if (s.length() != 1) {
+                    throw ECMAErrors.typeError("cant.convert.string.to.char", new String[0]);
+                } else {
+                    return s.charAt(0);
+                }
+            }
+        }
+
+        @SuppressWarnings("unused") // used by method handle
+        static char toCharPrimitive(Object obj0) {
+            Character c = toChar(obj0);
+            return c == null ? '\u0000' : c;
         }
 
         private static MethodHandle numberToWrappedPrimitive(MethodHandle toNumber, Class<?> wrapper) {
@@ -259,8 +349,8 @@ public class RhinoLinker implements GuardingDynamicLinker, GuardingTypeConverter
          *     <li>wrapper types of the primitive values</li>
          * </ul>
          */
-        // 7: count of primitives, 2: string and number.
-        private static final Map<Class<?>, MethodHandle> PRIMITIVE_CONVERTERS = new HashMap<>(7 * 2 + 2, 1f);
+        // 8: count of primitives, 2: string and number.
+        private static final Map<Class<?>, MethodHandle> PRIMITIVE_CONVERTERS = new HashMap<>(8 * 2 + 2, 1f);
 
         private static void putNumberPrimitiveConverter(Class<?> primitive) {
             Class<?> wrapper = TypeUtilities.getWrapperType(primitive);
@@ -278,6 +368,10 @@ public class RhinoLinker implements GuardingDynamicLinker, GuardingTypeConverter
             // for Number and String
             PRIMITIVE_CONVERTERS.put(Number.class, TO_NUMBER_OBJECT);
             PRIMITIVE_CONVERTERS.put(String.class, findMH(PrimitiveConvert.class, "toString", String.class, Object.class));
+
+            // for Number and String
+            PRIMITIVE_CONVERTERS.put(char.class, findMH(PrimitiveConvert.class, "toCharPrimitive", char.class, Object.class));
+            PRIMITIVE_CONVERTERS.put(Character.class, findMH(PrimitiveConvert.class, "toChar", Character.class, Object.class));
 
             // numeric primitives
             putNumberPrimitiveConverter(byte.class);

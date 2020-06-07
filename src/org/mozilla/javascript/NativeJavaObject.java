@@ -6,6 +6,9 @@
 
 package org.mozilla.javascript;
 
+import org.dynalang.dynalink.linker.GuardedInvocation;
+import org.mozilla.javascript.dynalink.RhinoLinker;
+
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
@@ -274,6 +277,8 @@ public class NativeJavaObject
         return coerceTypeImpl(type, value);
     }
 
+    static final MethodHandle IDENTITY_CONVERSION = MethodHandles.identity(Object.class);
+
     /**
      * Type-munging for field setting and method invocation.
      * Conforms to LC3 specification
@@ -283,9 +288,13 @@ public class NativeJavaObject
             if (value instanceof Wrapper) {
                 value = ((Wrapper)value).unwrap();
             }
-            MethodHandle handle = Context.getLinker()
-                .getLinkerServices()
-                .getTypeConverter(Context.getClassLink(value), type);
+            Class<?> sourceType = Context.getClassLink(value);
+
+            RhinoLinker linker = new RhinoLinker();
+            GuardedInvocation invocation = linker.convertToType(sourceType, type);
+            if (invocation == null) return type.cast(value);
+            
+            MethodHandle handle = invocation.compose(IDENTITY_CONVERSION.asType(MethodType.methodType(type, sourceType)));
             handle = MethodHandles.explicitCastArguments(handle, MethodType.methodType(Object.class, Object.class));
             return handle.invokeExact(value);
         } catch (Error | RuntimeException e) {
@@ -295,7 +304,7 @@ public class NativeJavaObject
         }
     }
 
-    protected static Object createInterfaceAdapter(Class<?>type, ScriptableObject so) {
+    public static Object createInterfaceAdapter(Class<?>type, ScriptableObject so) {
         // XXX: Currently only instances of ScriptableObject are
         // supported since the resulting interface proxies should
         // be reused next time conversion is made and generic

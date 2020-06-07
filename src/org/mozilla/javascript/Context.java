@@ -2817,10 +2817,14 @@ public class Context
     }
 
     static Class<?> getClassLink(Object object) {
+        return getClassLink(object, NULL_CLASS);
+    }
+
+    static Class<?> getClassLink(Object object, Class<?> ifNull) {
         if (object instanceof Wrapper) {
             object = ((Wrapper)object).unwrap();
         }
-        if (object == null) return NULL_CLASS;
+        if (object == null) return ifNull;
         return object.getClass();
     }
 
