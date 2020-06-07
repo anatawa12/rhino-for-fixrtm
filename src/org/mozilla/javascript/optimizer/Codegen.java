@@ -970,10 +970,11 @@ public class Codegen implements Evaluator
                                   "substring",
                                   "(II)Ljava/lang/String;");
                     cfw.add(ByteCode.ARETURN);
+                    break;
 
                     // add for Do_decompileRaw
                   case Do_decompileRaw:
-                    // Push number encoded source start and end
+                    // Push number source start and end
                     // to prepare for encodedSource.substring(start, end)
                     cfw.addPush(n.getAbsolutePosition());
                     cfw.addPush(n.getAbsolutePosition() + n.getLength());

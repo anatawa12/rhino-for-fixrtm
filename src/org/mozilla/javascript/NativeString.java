@@ -131,6 +131,7 @@ final class NativeString extends IdScriptableObject
     public Object get(String name, Scriptable start) {
         Object result = super.get(name, start);
         if (result != NOT_FOUND) return result;
+        if (name == "toString") return NOT_FOUND;
         // get ctx
         Context ctx = Context.getCurrentContext();
         if (ctx == null) return NOT_FOUND;
@@ -156,16 +157,16 @@ final class NativeString extends IdScriptableObject
 
         @Override
         public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
-            if (scope == null) 
+            if (thisObj == null) 
                 return javaMethod.call(cx, scope, thisObj, args);
 
-            Object unwrapped = unwrap.apply(scope);
+            Object unwrapped = unwrap.apply(thisObj);
             if (unwrapped instanceof Scriptable) 
-                return javaMethod.call(cx, (Scriptable) unwrapped, thisObj, args);
+                return javaMethod.call(cx, scope, (Scriptable) unwrapped, args);
             if (unwrapped == null)
                 return javaMethod.call(cx, scope, thisObj, args);
 
-            scope = cx.getWrapFactory().wrapNewObject(cx, ScriptableObject.getTopLevelScope(scope), unwrapped);
+            thisObj = cx.getWrapFactory().wrapNewObject(cx, ScriptableObject.getTopLevelScope(scope), unwrapped);
 
             return javaMethod.call(cx, scope, thisObj, args);
         }
