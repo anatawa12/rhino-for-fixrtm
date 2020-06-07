@@ -23,14 +23,9 @@ public abstract class NativeFunction extends BaseFunction
         ScriptRuntime.setFunctionProtoAndParent(this, scope);
     }
 
-    // ================================ fixRTM patch start ================================
-    // for compiled script, should return raw script
-
     public String decompileRaw() {
         return null;
     }
-
-    // ================================  fixRTM patch end  ================================
 
     /**
      * @param indent How much to indent the decompiled result

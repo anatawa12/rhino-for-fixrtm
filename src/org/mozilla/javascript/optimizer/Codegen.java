@@ -743,11 +743,7 @@ public class Codegen implements Evaluator
         cfw.stopMethod((short)3);
     }
 
-    // ================================ fixRTM patch start ================================
-    // for compiled script, should return raw script
-    // no end comment. and commented for each canges
-
-    // add sourceString
+    // to kwnow real source code
     String sourceString;
 
     private void generateNativeFunctionOverrides(ClassFileWriter cfw,

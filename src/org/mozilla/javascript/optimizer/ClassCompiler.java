@@ -157,10 +157,8 @@ public class ClassCompiler
 
         Codegen codegen = new Codegen();
 
-        // ================================ fixRTM patch start ================================
-        // for compiled script, should return raw script
+        // to know real source code
         codegen.sourceString = source;
-        // ================================  fixRTM patch end  ================================
 
         codegen.setMainMethodClass(mainMethodClassName);
         byte[] scriptClassBytes

@@ -127,8 +127,6 @@ final class NativeString extends IdScriptableObject
         super.fillConstructorProperties(ctor);
     }
 
-    // ================================ fixRTM patch start ================================
-
     @Override
     public Object get(String name, Scriptable start) {
         Object result = super.get(name, start);
@@ -177,8 +175,6 @@ final class NativeString extends IdScriptableObject
             return javaMethod.getDefaultValue(typeHint);
         }
     }
-
-    // ================================  fixRTM patch end  ================================
 
     @Override
     protected void initPrototypeId(int id)
