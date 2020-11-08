@@ -1,4 +1,5 @@
 # This Repository was a fork of Rhino.
+# This Repository Never updated. Will be replaced by another project.
 
 This fork is archived because this will never updated.
 This fork was developed on anatawa12/rhino-for-fixrtm but this is a part of fixrtm project so transfered.
