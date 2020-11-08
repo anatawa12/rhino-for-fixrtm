@@ -1,3 +1,8 @@
+# This Repository was a fork of Rhino.
+
+This fork is archived because this will never updated.
+This fork was developed on anatawa12/rhino-for-fixrtm but this is a part of fixrtm project so transfered.
+
 # Rhino: JavaScript in Java
 
 ![Rhino](https://developer.mozilla.org/@api/deki/files/832/=Rhino.jpg)
