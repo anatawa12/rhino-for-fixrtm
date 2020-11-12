@@ -6,10 +6,22 @@
 
 package org.mozilla.javascript;
 
+import org.dynalang.dynalink.CallSiteDescriptor;
+import org.dynalang.dynalink.linker.ConversionComparator;
+import org.dynalang.dynalink.linker.LinkerServices;
+import org.dynalang.dynalink.support.TypeUtilities;
+
 import java.lang.reflect.Array;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BiPredicate;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * This class reflects Java methods into the JavaScript environment and
@@ -268,191 +280,132 @@ public class NativeJavaMethod extends BaseFunction
         return findFunction(cx, methods, args);
     }
 
+    //////////// start source code based on BSD license ////////////
+    /*
+    this part of source code obtain the modified copy of source code of the private part of dynalink.
+    the dynalink is released under 3-cause BSD License.
+    the copy of 3-cause BSD License is shown below:
+
+       Copyright 2009-2013 Attila Szegedi
+
+       Redistribution and use in source and binary forms, with or without
+       modification, are permitted provided that the following conditions are
+       met:
+       * Redistributions of source code must retain the above copyright
+         notice, this list of conditions and the following disclaimer.
+       * Redistributions in binary form must reproduce the above copyright
+         notice, this list of conditions and the following disclaimer in the
+         documentation and/or other materials provided with the distribution.
+       * Neither the name of the copyright holder nor the names of
+         contributors may be used to endorse or promote products derived from
+         this software without specific prior written permission.
+
+       THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+       IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+       TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+       PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL COPYRIGHT HOLDER
+       BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+       CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+       SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+       BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+       WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+       OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+       ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+     */
+
     /**
      * Find the index of the correct function to call given the set of methods
      * or constructors and the arguments.
      * If no function can be found to call, return -1.
+     * 
+     * most part of this function is copied from {@link org.dynalang.dynalink.beans.OverloadedDynamicMethod#getInvocation(CallSiteDescriptor, LinkerServices)}
      */
     static int findFunction(Context cx,
-                            MemberBox[] methodsOrCtors, Object[] args)
-    {
-        if (methodsOrCtors.length == 0) {
-            return -1;
-        } else if (methodsOrCtors.length == 1) {
-            MemberBox member = methodsOrCtors[0];
-            Class<?>[] argTypes = member.argTypes;
-            int alength = argTypes.length;
+                            MemberBox[] methods, Object[] args) {
+        LinkerServices linkerServices = Context.getLinker().getLinkerServices();
+        Class<?>[] argTypes = Arrays.stream(args).map(it -> Context.getClassLink(it, Object.class)).toArray(Class[]::new);
 
-            if (member.vararg) {
-                alength--;
-                if ( alength > args.length) {
-                    return -1;
-                }
-            } else {
-                if (alength != args.length) {
-                    return -1;
-                }
-            }
-            for (int j = 0; j != alength; ++j) {
-                if (!NativeJavaObject.canConvert(args[j], argTypes[j])) {
-                    if (debug) printDebug("Rejecting (args can't convert) ",
-                                          member, args);
-                    return -1;
-                }
-            }
-            if (debug) printDebug("Found ", member, args);
-            return 0;
-        }
+        // First, find all methods applicable to the call site by subtyping (JLS 15.12.2.2)
+        final List<MemberBox> subtypingApplicables = getApplicables(argTypes, methods, APPLICABLE_BY_SUBTYPING);
+        // Next, find all methods applicable by method invocation conversion to the call site (JLS 15.12.2.3).
+        final List<MemberBox> methodInvocationApplicables = getApplicables(argTypes, methods, APPLICABLE_BY_METHOD_INVOCATION_CONVERSION);
+        // Finally, find all methods applicable by variable arity invocation. (JLS 15.12.2.4).
+        final List<MemberBox> variableArityApplicables = getApplicables(argTypes, methods, APPLICABLE_BY_VARIABLE_ARITY);
 
-        int firstBestFit = -1;
-        int[] extraBestFits = null;
-        int extraBestFitsCount = 0;
-
-      search:
-        for (int i = 0; i < methodsOrCtors.length; i++) {
-            MemberBox member = methodsOrCtors[i];
-            Class<?>[] argTypes = member.argTypes;
-            int alength = argTypes.length;
-            if (member.vararg) {
-                alength--;
-                if ( alength > args.length) {
-                    continue search;
-                }
-            } else {
-                if (alength != args.length) {
-                    continue search;
-                }
-            }
-            for (int j = 0; j < alength; j++) {
-                if (!NativeJavaObject.canConvert(args[j], argTypes[j])) {
-                    if (debug) printDebug("Rejecting (args can't convert) ",
-                                          member, args);
-                    continue search;
-                }
-            }
-            if (firstBestFit < 0) {
-                if (debug) printDebug("Found first applicable ", member, args);
-                firstBestFit = i;
-            } else {
-                // Compare with all currently fit methods.
-                // The loop starts from -1 denoting firstBestFit and proceed
-                // until extraBestFitsCount to avoid extraBestFits allocation
-                // in the most common case of no ambiguity
-                int betterCount = 0; // number of times member was prefered over
-                                     // best fits
-                int worseCount = 0;  // number of times best fits were prefered
-                                     // over member
-                for (int j = -1; j != extraBestFitsCount; ++j) {
-                    int bestFitIndex;
-                    if (j == -1) {
-                        bestFitIndex = firstBestFit;
-                    } else {
-                        bestFitIndex = extraBestFits[j];
-                    }
-                    MemberBox bestFit = methodsOrCtors[bestFitIndex];
-                    if (cx.hasFeature(Context.FEATURE_ENHANCED_JAVA_ACCESS) &&
-                        bestFit.isPublic() != member.isPublic())
-                    {
-                        // When FEATURE_ENHANCED_JAVA_ACCESS gives us access
-                        // to non-public members, continue to prefer public
-                        // methods in overloading
-                        if (!bestFit.isPublic())
-                            ++betterCount;
-                        else
-                            ++worseCount;
-                    } else {
-                        int preference = preferSignature(args, argTypes,
-                                                         member.vararg,
-                                                         bestFit.argTypes,
-                                                         bestFit.vararg );
-                        if (preference == PREFERENCE_AMBIGUOUS) {
-                            break;
-                        } else if (preference == PREFERENCE_FIRST_ARG) {
-                            ++betterCount;
-                        } else if (preference == PREFERENCE_SECOND_ARG) {
-                            ++worseCount;
-                        } else {
-                            if (preference != PREFERENCE_EQUAL) Kit.codeBug();
-                            // This should not happen in theory
-                            // but on some JVMs, Class.getMethods will return all
-                            // static methods of the class hierarchy, even if
-                            // a derived class's parameters match exactly.
-                            // We want to call the derived class's method.
-                            if (bestFit.isStatic() &&
-                                bestFit.getDeclaringClass().isAssignableFrom(
-                                       member.getDeclaringClass()))
-                            {
-                                // On some JVMs, Class.getMethods will return all
-                                // static methods of the class hierarchy, even if
-                                // a derived class's parameters match exactly.
-                                // We want to call the derived class's method.
-                                if (debug) printDebug(
-                                    "Substituting (overridden static)",
-                                    member, args);
-                                if (j == -1) {
-                                    firstBestFit = i;
-                                } else {
-                                    extraBestFits[j] = i;
-                                }
-                            } else {
-                                if (debug) printDebug(
-                                    "Ignoring same signature member ",
-                                    member, args);
-                            }
-                            continue search;
-                        }
-                    }
-                }
-                if (betterCount == 1 + extraBestFitsCount) {
-                    // member was prefered over all best fits
-                    if (debug) printDebug(
-                        "New first applicable ", member, args);
-                    firstBestFit = i;
-                    extraBestFitsCount = 0;
-                } else if (worseCount == 1 + extraBestFitsCount) {
-                    // all best fits were prefered over member, ignore it
-                    if (debug) printDebug(
-                        "Rejecting (all current bests better) ", member, args);
-                } else {
-                    // some ambiguity was present, add member to best fit set
-                    if (debug) printDebug(
-                        "Added to best fit set ", member, args);
-                    if (extraBestFits == null) {
-                        // Allocate maximum possible array
-                        extraBestFits = new int[methodsOrCtors.length - 1];
-                    }
-                    extraBestFits[extraBestFitsCount] = i;
-                    ++extraBestFitsCount;
-                }
+        // Find the methods that are maximally specific based on the call site signature
+        
+        List<MemberBox> maximallySpecifics = getMaximallySpecificMethods(subtypingApplicables, false, argTypes, linkerServices);
+        if(maximallySpecifics.isEmpty()) {
+            maximallySpecifics = getMaximallySpecificMethods(methodInvocationApplicables, false, argTypes, linkerServices);
+            if(maximallySpecifics.isEmpty()) {
+                maximallySpecifics = getMaximallySpecificMethods(variableArityApplicables, false, argTypes, linkerServices);
             }
         }
 
-        if (firstBestFit < 0) {
-            // Nothing was found
-            return -1;
-        } else if (extraBestFitsCount == 0) {
-            // single best fit
-            return firstBestFit;
+        // Now, get a list of the rest of the methods; those that are *not* applicable to the call site signature based
+        // on JLS rules. As paradoxical as that might sound, we have to consider these for dynamic invocation, as they
+        // might match more concrete types passed in invocations. That's why we provisionally call them "invokables".
+        // This is typical for very generic signatures at call sites. Typical example: call site specifies
+        // (Object, Object), and we have a method whose parameter types are (String, int). None of the JLS applicability
+        // rules will trigger, but we must consider the method, as it can be the right match for a concrete invocation.
+        List<MemberBox> invokables = new ArrayList<>(Arrays.asList(methods));
+        invokables.removeAll(subtypingApplicables);
+        invokables.removeAll(methodInvocationApplicables);
+        invokables.removeAll(variableArityApplicables);
+
+        invokables.removeIf(m -> !isApplicableDynamically(linkerServices, argTypes, m));
+
+        // If no additional methods can apply at invocation time, and there's more than one maximally specific method
+        // based on call site signature, that is a link-time ambiguity. In a static scenario, javac would report an
+        // ambiguity error.
+        if (!invokables.isEmpty() || maximallySpecifics.size() <= 1) {
+            // Merge them all.
+            invokables.addAll(maximallySpecifics);
+            switch (invokables.size()) {
+                case 0: {
+                    // No overloads can ever match the call site type
+                    return -1;
+                }
+                case 1: {
+                    // Very lucky, we ended up with a single candidate method handle based on the call site signature; we
+                    // can link it very simply by delegating to the SingleDynamicMethod.
+                    return Arrays.asList(methods).indexOf(invokables.iterator().next());
+                }
+                default: {
+                    // We have more than one candidate. We have no choice but to link to a method that resolves overloads on
+                    // every invocation (alternatively, we could opportunistically link the one method that resolves for the
+                    // current arguments, but we'd need to install a fairly complex guard for that and when it'd fail, we'd
+                    // go back all the way to candidate selection. Note that we're resolving any potential caller sensitive
+                    // methods here to their handles, as the OverloadedMethod instance is specific to a call site, so it
+                    // has an already determined Lookup.
+                    final List<MemberBox> methodHandles = invokables;
+
+                    Class<?>[] realArgTypes = Arrays.stream(args).map(Context::getClassLink).toArray(Class[]::new);
+                    final List<MemberBox> selected = selectMethod(realArgTypes, methodHandles, linkerServices);
+                    if (selected.size() == 0) return -1;
+                    if (selected.size() == 1) return Arrays.asList(methods).indexOf(selected.iterator().next());
+
+                    // for error, use selected
+                    invokables = selected;
+                }
+            }
+        } else {
+            invokables.addAll(maximallySpecifics);
         }
+
 
         // report remaining ambiguity
         StringBuilder buf = new StringBuilder();
-        for (int j = -1; j != extraBestFitsCount; ++j) {
-            int bestFitIndex;
-            if (j == -1) {
-                bestFitIndex = firstBestFit;
-            } else {
-                bestFitIndex = extraBestFits[j];
-            }
+        for (MemberBox invokable : invokables) {
             buf.append("\n    ");
-            buf.append(methodsOrCtors[bestFitIndex].toJavaDeclaration());
+            buf.append(invokable.toJavaDeclaration());
         }
 
-        MemberBox firstFitMember = methodsOrCtors[firstBestFit];
+        MemberBox firstFitMember = invokables.iterator().next();
         String memberName = firstFitMember.getName();
         String memberClass = firstFitMember.getDeclaringClass().getName();
 
-        if (methodsOrCtors[0].isCtor()) {
+        if (methods[0].isCtor()) {
             throw Context.reportRuntimeError3(
                 "msg.constructor.ambiguous",
                 memberName, scriptSignature(args), buf.toString());
@@ -462,66 +415,276 @@ public class NativeJavaMethod extends BaseFunction
             memberName, scriptSignature(args), buf.toString());
     }
 
-    /** Types are equal */
-    private static final int PREFERENCE_EQUAL      = 0;
-    private static final int PREFERENCE_FIRST_ARG  = 1;
-    private static final int PREFERENCE_SECOND_ARG = 2;
-    /** No clear "easy" conversion */
-    private static final int PREFERENCE_AMBIGUOUS  = 3;
-
     /**
-     * Determine which of two signatures is the closer fit.
-     * Returns one of PREFERENCE_EQUAL, PREFERENCE_FIRST_ARG,
-     * PREFERENCE_SECOND_ARG, or PREFERENCE_AMBIGUOUS.
+     * this is based on a copy of {@link org.dynalang.dynalink.beans.OverloadedMethod#selectMethod(Object[])}
      */
-    private static int preferSignature(Object[] args,
-                                       Class<?>[] sig1,
-                                       boolean vararg1,
-                                       Class<?>[] sig2,
-                                       boolean vararg2 )
-    {
-        int totalPreference = 0;
-        for (int j = 0; j < args.length; j++) {
-            Class<?> type1 = vararg1 && j >= sig1.length ? sig1[sig1.length-1] : sig1[j];
-            Class<?> type2 = vararg2 && j >= sig2.length ? sig2[sig2.length-1] : sig2[j];
-            if (type1 == type2) {
-                continue;
+    @SuppressWarnings("unused")
+    private static List<MemberBox> selectMethod(Class<?>[] argTypes, List<MemberBox> methodsIn, LinkerServices linkerServices) {
+        List<MemberBox> fixArgMethods = methodsIn.stream().filter(it -> !it.vararg || it.argTypes.length == argTypes.length).collect(Collectors.toList());
+        List<MemberBox> varArgMethods = methodsIn.stream().filter(it -> it.vararg).collect(Collectors.toList());
+        
+        List<MemberBox> methods = getMaximallySpecificMethods(getApplicables(argTypes, fixArgMethods, linkerServices, false), false, argTypes, linkerServices);
+        if(methods.isEmpty()) {
+            methods = getMaximallySpecificMethods(getApplicables(argTypes, varArgMethods, linkerServices, true), true, argTypes, linkerServices);
+        }
+        return methods;
+        // no cache
+    }
+
+    private static LinkedList<MemberBox> getApplicables(Class<?>[] argTypes, List<MemberBox> methods, LinkerServices linkerServices, boolean varArg) {
+        LinkedList<MemberBox> list = new LinkedList<>();
+
+        for (MemberBox member : methods) {
+            if (isApplicable(argTypes, member, linkerServices, varArg)) {
+                list.add(member);
             }
-            Object arg = args[j];
+        }
 
-            // Determine which of type1, type2 is easier to convert from arg.
+        return list;
+    }
 
-            int rank1 = NativeJavaObject.getConversionWeight(arg, type1);
-            int rank2 = NativeJavaObject.getConversionWeight(arg, type2);
+    private static boolean isApplicable(Class<?>[] argTypes, MemberBox method, LinkerServices linkerServices, boolean varArg) {
+        Class<?>[] formalTypes = method.argTypes;
+        int cl = argTypes.length;
+        int fl = formalTypes.length - (varArg ? 1 : 0);
+        if (varArg) {
+            if (cl < fl) {
+                return false;
+            }
+        } else if (cl != fl) {
+            return false;
+        }
 
-            int preference;
-            if (rank1 < rank2) {
-                preference = PREFERENCE_FIRST_ARG;
-            } else if (rank1 > rank2) {
-                preference = PREFERENCE_SECOND_ARG;
-            } else {
-                // Equal ranks
-                if (rank1 == NativeJavaObject.CONVERSION_NONTRIVIAL) {
-                    if (type1.isAssignableFrom(type2)) {
-                        preference = PREFERENCE_SECOND_ARG;
-                    } else if (type2.isAssignableFrom(type1)) {
-                        preference = PREFERENCE_FIRST_ARG;
-                    } else {
-                        preference = PREFERENCE_AMBIGUOUS;
-                    }
-                } else {
-                    preference = PREFERENCE_AMBIGUOUS;
+        for(int i = 0; i < fl; ++i) {
+            if (!canConvert(linkerServices, argTypes[i], formalTypes[i])) {
+                return false;
+            }
+        }
+
+        if (varArg) {
+            Class<?> varArgType = formalTypes[fl].getComponentType();
+
+            for(int i = fl; i < cl; ++i) {
+                if (!canConvert(linkerServices, argTypes[i], varArgType)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static boolean canConvert(LinkerServices ls, Class<?> from, Class<?> to) {
+        if (from == Context.NULL_CLASS) {
+            return !to.isPrimitive();
+        } else {
+            return ls == null ? TypeUtilities.isMethodInvocationConvertible(from, to) : ls.canConvert(from, to);
+        }
+    }
+    private static final BiPredicate<Class<?>[], MemberBox> APPLICABLE_BY_SUBTYPING = (callSiteType, method) -> {
+        int methodArity = method.argTypes.length;
+        if (methodArity != callSiteType.length) {
+            return false;
+        } else {
+            for (int i = 0; i < methodArity; ++i) {
+                if (!TypeUtilities.isSubtype(callSiteType[i], method.argTypes[i])) {
+                    return false;
                 }
             }
 
-            totalPreference |= preference;
+            return true;
+        }
+    };
 
-            if (totalPreference == PREFERENCE_AMBIGUOUS) {
-                break;
+    private static final BiPredicate<Class<?>[], MemberBox> APPLICABLE_BY_METHOD_INVOCATION_CONVERSION = (callSiteType, method) -> {
+        int methodArity = method.argTypes.length;
+        if (methodArity != callSiteType.length) {
+            return false;
+        } else {
+            for (int i = 0; i < methodArity; ++i) {
+                if (!TypeUtilities.isMethodInvocationConvertible(callSiteType[i], method.argTypes[i])) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    };
+
+    private static final BiPredicate<Class<?>[], MemberBox> APPLICABLE_BY_VARIABLE_ARITY = (callSiteType, method) -> {
+        if (!method.vararg) return false;
+
+        int methodArity = method.argTypes.length;
+        int fixArity = methodArity - 1;
+        int callSiteArity = callSiteType.length;
+        if (fixArity > callSiteArity) {
+            return false;
+        } else {
+            for (int i = 0; i < fixArity; ++i) {
+                if (!TypeUtilities.isMethodInvocationConvertible(callSiteType[i], method.argTypes[i])) {
+                    return false;
+                }
+            }
+
+            Class<?> varArgType = method.argTypes[fixArity].getComponentType();
+
+            for (int ix = fixArity; ix < callSiteArity; ++ix) {
+                if (!TypeUtilities.isMethodInvocationConvertible(callSiteType[ix], varArgType)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    };
+
+    private static List<MemberBox> getApplicables(Class<?>[] argTypes, MemberBox[] methods, BiPredicate<Class<?>[], MemberBox> condition) {
+        return Arrays.stream(methods)
+                .filter(it -> condition.test(argTypes, it))
+                .collect(Collectors.toList());
+    }
+
+    private static List<MemberBox> getMaximallySpecificMethods(List<MemberBox> methods, boolean varArgs, Class<?>[] argTypes, LinkerServices ls) {
+        if (methods.size() < 2) {
+            // empty array or 0
+            return methods;
+        } else {
+            LinkedList<MemberBox> maximals = new LinkedList<>();
+            for (MemberBox m : methods) {
+                Class<?>[] mArgTypes = m.argTypes;
+                boolean lessSpecific = false;
+                Iterator<MemberBox> maximal = maximals.iterator();
+
+                while (maximal.hasNext()) {
+                    MemberBox max = maximal.next();
+                    switch (isMoreSpecific(mArgTypes, max.argTypes, varArgs, argTypes, ls)) {
+                        case TYPE_1_BETTER:
+                            maximal.remove();
+                            break;
+                        case TYPE_2_BETTER:
+                            lessSpecific = true;
+                        case INDETERMINATE:
+                            break;
+                        default:
+                            throw new AssertionError();
+                    }
+                }
+
+                if (!lessSpecific) {
+                    maximals.addLast(m);
+                }
+            }
+
+            return maximals;
+        }
+    }
+
+    private static ConversionComparator.Comparison isMoreSpecific(Class<?>[] t1, Class<?>[] t2, boolean varArgs, Class<?>[] argTypes, LinkerServices ls) {
+        int pc1 = t1.length;
+        int pc2 = t2.length;
+
+        assert varArgs || pc1 == pc2 && (argTypes == null || argTypes.length == pc1);
+
+        assert argTypes == null == (ls == null);
+
+        int maxPc = Math.max(Math.max(pc1, pc2), argTypes == null ? 0 : argTypes.length);
+        boolean t1MoreSpecific = false;
+        boolean t2MoreSpecific = false;
+
+        for(int i = 0; i < maxPc; ++i) {
+            Class<?> c1 = getParameterClass(t1, pc1, i, varArgs);
+            Class<?> c2 = getParameterClass(t2, pc2, i, varArgs);
+            if (c1 != c2) {
+                ConversionComparator.Comparison cmp = compare(c1, c2, argTypes, i, ls);
+                if (cmp == ConversionComparator.Comparison.TYPE_1_BETTER && !t1MoreSpecific) {
+                    t1MoreSpecific = true;
+                    if (t2MoreSpecific) {
+                        return ConversionComparator.Comparison.INDETERMINATE;
+                    }
+                }
+
+                if (cmp == ConversionComparator.Comparison.TYPE_2_BETTER && !t2MoreSpecific) {
+                    t2MoreSpecific = true;
+                    if (t1MoreSpecific) {
+                        return ConversionComparator.Comparison.INDETERMINATE;
+                    }
+                }
             }
         }
-        return totalPreference;
+
+        if (t1MoreSpecific) {
+            return ConversionComparator.Comparison.TYPE_1_BETTER;
+        } else if (t2MoreSpecific) {
+            return ConversionComparator.Comparison.TYPE_2_BETTER;
+        } else {
+            return ConversionComparator.Comparison.INDETERMINATE;
+        }
     }
+
+    private static ConversionComparator.Comparison compare(Class<?> c1, Class<?> c2, Class<?>[] argTypes, int i, LinkerServices cmp) {
+        if (cmp != null) {
+            ConversionComparator.Comparison c = cmp.compareConversion(argTypes[i], c1, c2);
+            if (c != ConversionComparator.Comparison.INDETERMINATE) {
+                return c;
+            }
+        }
+
+        if (TypeUtilities.isSubtype(c1, c2)) {
+            return ConversionComparator.Comparison.TYPE_1_BETTER;
+        } else {
+            return TypeUtilities.isSubtype(c2, c1) ? ConversionComparator.Comparison.TYPE_2_BETTER : ConversionComparator.Comparison.INDETERMINATE;
+        }
+    }
+
+    private static Class<?> getParameterClass(Class<?>[] argTypes, int l, int i, boolean varArgs) {
+        return varArgs && i >= l - 1 ? argTypes[l - 1].getComponentType() : argTypes[i];
+    }
+
+    private static boolean isApplicableDynamically(LinkerServices linkerServices, Class<?>[] callSiteType, MemberBox m) {
+        Class<?>[] methodArgTypes = m.argTypes;
+        boolean varArgs = m.vararg;
+        int minArgLength = methodArgTypes.length - (varArgs ? 1 : 0);
+        int callSiteArgLen = callSiteType.length;
+
+        if (varArgs) {
+            if (callSiteArgLen < minArgLength) {
+                return false;
+            }
+        } else if (callSiteArgLen != minArgLength) {
+            return false;
+        }
+
+        if (!IntStream.range(0, minArgLength)
+                .allMatch(i -> isApplicableDynamically(linkerServices, callSiteType[i], methodArgTypes[i])))
+            return false;
+
+        if (varArgs) {
+            Class<?> varArgArrayType = methodArgTypes[minArgLength];
+            Class<?> varArgType = varArgArrayType.getComponentType();
+            if (minArgLength + 1 == callSiteArgLen) {
+                // if length of parameters and arguments are same, it may be array
+                Class<?> callSiteArgType = callSiteType[minArgLength];
+                return isApplicableDynamically(linkerServices, callSiteArgType, varArgArrayType)
+                        || isApplicableDynamically(linkerServices, callSiteArgType, varArgType);
+            } else {
+                for(int i = minArgLength; i < callSiteArgLen; ++i) {
+                    if (!isApplicableDynamically(linkerServices, callSiteType[i], varArgType)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+        } else {
+            return true;
+        }
+    }
+
+    private static boolean isApplicableDynamically(LinkerServices linkerServices, Class<?> callSiteType, Class<?> methodType) {
+        return TypeUtilities.isPotentiallyConvertible(callSiteType, methodType) || linkerServices.canConvert(callSiteType, methodType);
+    }
+
+    ////////////  end source code based on BSD license  ////////////
 
 
     private static final boolean debug = false;

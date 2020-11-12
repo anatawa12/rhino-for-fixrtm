@@ -2319,10 +2319,10 @@ lc2/JSToJava/integer-001.js
 lc2/JSToJava/integer-002.js
 lc2/JSToJava/long-001.js
 lc2/JSToJava/long-002.js
-lc2/JSToJava/long-003-n.js
+lc2/JSToJava/long-003.js
 lc2/JSToJava/short-001.js
 lc2/JSToJava/short-002.js
-lc2/JSToJava/short-003-n.js
+lc2/JSToJava/short-003.js
 lc2/JavaToJS/String-001.js
 lc2/JavaToJS/boolean-001.js
 lc2/JavaToJS/boolean-003.js

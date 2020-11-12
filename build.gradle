@@ -46,6 +46,8 @@ dependencies {
     testCompile "junit:junit:4.12"
     testCompile "org.yaml:snakeyaml:1.15"
     testCompile "net.trajano.caliper:caliper:1.2.1"
+
+    compile 'org.dynalang:dynalink:0.7'
 }
 
 test {
@@ -135,6 +137,7 @@ task runtimeJar(type: Jar) {
 jar {
     dependsOn runtimeJar
     from "LICENSE.txt"
+    from "THIRD-PERTY-LICENSE.txt"
     manifest {
         attributes(
             "Manifest-Version": "1.0",

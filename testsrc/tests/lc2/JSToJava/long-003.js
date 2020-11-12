@@ -3,7 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-gTestfile = 'short-003-n.js';
+gTestfile = 'long-003.js';
 
 /**
    Template for LiveConnect Tests
@@ -11,35 +11,8 @@ gTestfile = 'short-003-n.js';
    File Name:      number-001.js
    Description:
 
-   When setting the value of a Java field with a JavaScript number or
-   when passing a JavaScript number to a Java method as an argument,
-   LiveConnect should be able to convert the number to any one of the
-   following types:
-
-   byte
-   short
-   int
-   long
-   float
-   double
-   char
-   java.lang.Double
-
-   Note that the value of the Java field may not be as precise as the
-   JavaScript value's number, if for example, you pass a large number to
-   a short or byte, or a float to integer.
-
-   JavaScript numbers cannot be converted to instances of java.lang.Float
-   or java.lang.Integer.
-
-   This test does not cover the cases in which a Java method returns one
-   of the above primitive Java types.
-
-   Currently split up into numerous tests, since rhino live connect fails
-   to translate numbers into the correct types.
-
-   Test for passing JavasScript numbers to static java.lang.Integer methods.
-
+   This test fails in lc3, but will succeed if the underlying version
+   of liveconnect only supports LC2.
 
    @author     christine@netscape.com
    @version    1.00
@@ -60,8 +33,8 @@ var E_JSCLASS = "[object JavaObject]";
 var a = new Array();
 var i = 0;
 
-a[i++] = new TestObject( "java.lang.Short.toString(NaN)",
-			 java.lang.Short.toString(NaN), "0" );
+a[i++] = new TestObject( "java.lang.Long.toString(NaN)",
+			 java.lang.Long.toString(NaN), "0" );
 
 for ( var i = 0; i < a.length; i++ ) {
 
@@ -94,6 +67,7 @@ function TestObject( description, javavalue, jsvalue ) {
   this.javavalue = javavalue;
   this.jsvalue = jsvalue;
   this.type = E_TYPE;
+//  LC2 does not support the __proto__ property in Java objects.
 //    this.javavalue.__proto__.getJSClass = Object.prototype.toString;
 //    this.jsclass = this.javavalue.getJSClass();
   return this;
