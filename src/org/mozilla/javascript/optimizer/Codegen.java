@@ -743,6 +743,9 @@ public class Codegen implements Evaluator
         cfw.stopMethod((short)3);
     }
 
+    // to kwnow real source code
+    String sourceString;
+
     private void generateNativeFunctionOverrides(ClassFileWriter cfw,
                                                  String encodedSource)
     {
@@ -766,10 +769,17 @@ public class Codegen implements Evaluator
         final int Do_getParamOrVarName    = 3;
         final int Do_getEncodedSource     = 4;
         final int Do_getParamOrVarConst   = 5;
-        final int SWITCH_COUNT            = 6;
+        // add Do_decompileRaw
+        final int Do_decompileRaw         = 6;
+        final int SWITCH_COUNT            = 7;
 
         for (int methodIndex = 0; methodIndex != SWITCH_COUNT; ++methodIndex) {
             if (methodIndex == Do_getEncodedSource && encodedSource == null) {
+                continue;
+            }
+
+            // add condition for Do_decompileRaw
+            if (methodIndex == Do_decompileRaw && sourceString == null) {
                 continue;
             }
 
@@ -811,6 +821,15 @@ public class Codegen implements Evaluator
                                 ACC_PUBLIC);
                 cfw.addPush(encodedSource);
                 break;
+
+                // add for Do_decompileRaw
+              case Do_decompileRaw:
+                methodLocals = 1; // Only this
+                cfw.startMethod("decompileRaw", "()Ljava/lang/String;",
+                        ACC_PUBLIC);
+                cfw.addPush(sourceString);
+                break;
+
               default:
                 throw Kit.codeBug();
             }
@@ -946,6 +965,19 @@ public class Codegen implements Evaluator
                     // to prepare for encodedSource.substring(start, end)
                     cfw.addPush(n.getEncodedSourceStart());
                     cfw.addPush(n.getEncodedSourceEnd());
+                    cfw.addInvoke(ByteCode.INVOKEVIRTUAL,
+                                  "java/lang/String",
+                                  "substring",
+                                  "(II)Ljava/lang/String;");
+                    cfw.add(ByteCode.ARETURN);
+                    break;
+
+                    // add for Do_decompileRaw
+                  case Do_decompileRaw:
+                    // Push number source start and end
+                    // to prepare for encodedSource.substring(start, end)
+                    cfw.addPush(n.getAbsolutePosition());
+                    cfw.addPush(n.getAbsolutePosition() + n.getLength());
                     cfw.addInvoke(ByteCode.INVOKEVIRTUAL,
                                   "java/lang/String",
                                   "substring",

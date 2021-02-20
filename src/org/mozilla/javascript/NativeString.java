@@ -11,7 +11,11 @@ import static org.mozilla.javascript.ScriptRuntimeES6.requireObjectCoercible;
 
 import java.text.Collator;
 import java.text.Normalizer;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
+import java.util.function.Function;
 
 import org.mozilla.javascript.regexp.NativeRegExp;
 
@@ -124,6 +128,65 @@ final class NativeString extends IdScriptableObject
         addIdFunctionProperty(ctor, STRING_TAG,
                 ConstructorId_toLocaleLowerCase, "toLocaleLowerCase", 1);
         super.fillConstructorProperties(ctor);
+    }
+
+    @Override
+    public Object get(String name, Scriptable start) {
+        Object result = super.get(name, start);
+        if (result != NOT_FOUND) return result;
+        if (StringMethod_names.contains(name)) return NOT_FOUND;
+        // get ctx
+        Context ctx = Context.getCurrentContext();
+        if (ctx == null) return NOT_FOUND;
+        // get by object
+        result = ctx.getWrapFactory().wrapNewObject(ctx, ScriptableObject.getTopLevelScope(start), "")
+                .get(name, start);
+        if (result instanceof NativeJavaMethod) {
+            return new WrappedNativeFunction((NativeJavaMethod) result, 
+                    (obj) -> obj instanceof NativeString ? ((NativeString) obj).toCharSequence().toString() : null);
+        }
+        return result;
+    }
+
+    private static final Set<String> StringMethod_names = new HashSet<>(Arrays.asList(
+        "charAt", "charCodeAt", "codePointAt", "concat", "includes", "endsWith", "indexOf", "lastIndexOf",
+        "localeCompare", "match", "normalize", "padEnd", "padStart", "quote", "repeat", "replace", "search",
+        "slice", "split", "startsWith", "substr", "substring", "toLocaleLowerCase", "toLocaleUpperCase",
+        "toLowerCase", "toSource", "toUpperCase", "trim", "trimStart", "trimLeft", "trimEnd",
+        "trimRight", "anchor", "big", "blink", "bold", "fixed", "fontcolor", "fontsize", "italics",
+        "link", "small", "strike", "sub", "sup", "toString", "valueOf"
+    ));
+
+    private static class WrappedNativeFunction extends NativeJavaMethod {
+        private final NativeJavaMethod javaMethod;
+        private final Function<Scriptable, Object> unwrap;
+
+        WrappedNativeFunction(NativeJavaMethod javaMethod, Function<Scriptable, Object> unwrap) {
+            super(javaMethod.methods, javaMethod.getFunctionName());
+            this.javaMethod = javaMethod;
+            this.unwrap = unwrap;
+        }
+
+        @Override
+        public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+            if (thisObj == null) 
+                return javaMethod.call(cx, scope, thisObj, args);
+
+            Object unwrapped = unwrap.apply(thisObj);
+            if (unwrapped instanceof Scriptable) 
+                return javaMethod.call(cx, scope, (Scriptable) unwrapped, args);
+            if (unwrapped == null)
+                return javaMethod.call(cx, scope, thisObj, args);
+
+            thisObj = cx.getWrapFactory().wrapNewObject(cx, ScriptableObject.getTopLevelScope(scope), unwrapped);
+
+            return javaMethod.call(cx, scope, thisObj, args);
+        }
+
+        @Override
+        public Object getDefaultValue(Class<?> typeHint) {
+            return javaMethod.getDefaultValue(typeHint);
+        }
     }
 
     @Override

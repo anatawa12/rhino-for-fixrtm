@@ -33,6 +33,8 @@ public class NativeJavaClass extends NativeJavaObject implements Function
     // Special property for getting the underlying Java class object.
     static final String javaClassPropertyName = "__javaObject__";
 
+    static final String javaClassPropertyName2 = "class";
+
     public NativeJavaClass() {
     }
 
@@ -58,7 +60,8 @@ public class NativeJavaClass extends NativeJavaObject implements Function
 
     @Override
     public boolean has(String name, Scriptable start) {
-        return members.has(name, true) || javaClassPropertyName.equals(name);
+        return members.has(name, true) || javaClassPropertyName.equals(name)
+                || javaClassPropertyName2.equals(name);
     }
 
     @Override
@@ -84,7 +87,7 @@ public class NativeJavaClass extends NativeJavaObject implements Function
         Scriptable scope = ScriptableObject.getTopLevelScope(start);
         WrapFactory wrapFactory = cx.getWrapFactory();
 
-        if (javaClassPropertyName.equals(name)) {
+        if (javaClassPropertyName.equals(name) || javaClassPropertyName2.equals(name)) {
             return wrapFactory.wrap(cx, scope, javaObject,
                                     ScriptRuntime.ClassClass);
         }
